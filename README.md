@@ -25,6 +25,15 @@ python3 install.py
 
 The cross-platform installer creates `.venv`, installs `xtalk-mcp`, copies the xtalk skill, and offers to configure MCP clients. Use `--yes` for non-interactive installation or `--client codex` (repeatable) to limit configuration. Restart the client after installation.
 
+To install or update only the agent skill with the cross-agent [`skills` CLI](https://github.com/vercel-labs/skills):
+
+```bash
+npx skills add 8w6s/xtalk --skill xtalk -g \
+  -a claude-code -a codex -a antigravity-cli
+```
+
+Omit `-g` for a project-local skill, or choose only the agents you use. This installs the instructions that govern agent behavior; it does not install or configure the xtalk MCP server, so first-time users should still run `install.py`.
+
 Manual client configuration:
 
 ```bash

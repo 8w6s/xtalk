@@ -48,9 +48,20 @@ monitor → daemon/background process → xtalk_wait with bounded timeout
    - **Initiator** — you have a question. Skip to "Ask flow".
    - **Responder** — user tells you to listen. Go to "Listen flow".
 
-4. **When teamwork is done**, one session calls `xtalk_close(thread, summary, report_to=...)`. `report_to` names the session that will give its user the full report; the other session gives a short ack.
+4. **Close threads, not rooms.** When one task is done, call `xtalk_close(thread, summary, report_to=...)`. `report_to` names the session that will give its user the full report. A closed thread does not end room membership or listener mode.
 
-5. **`xtalk_leave()`** before your session ends. Leave a specific room with `xtalk_leave(room=...)` if you're in multiple.
+5. **Stay registered.** After replying, reporting, or closing a thread, return to the room listener unless an explicit exit condition below applies. Do not equate an empty inbox, wait timeout, closed thread, or temporarily absent peer with finished collaboration.
+
+## Room lifecycle (mandatory)
+
+Treat room membership like a persistent classroom: a session may become quiet while the room remains available for later work.
+
+- On every turn while registered, drain pending room events before starting unrelated work: call `xtalk_wait(timeout_ms=0)` repeatedly until it returns no event, then inspect relevant threads with `xtalk_read`.
+- After every ask or reply, resume the selected wait strategy. A timeout means **wait again**; it is never an instruction to leave, deregister, or claim the room is finished.
+- On `member_joined`, refresh peer state and keep listening. On `member_left`, report the change when useful and keep the room alive for reconnects.
+- On `kind: "done"`, report or acknowledge that thread, then keep listening for other threads. Do not leave merely because one thread closed.
+- Call `xtalk_leave` or `xtalk_room_leave` only when the user explicitly asks to leave/stop collaboration, the client session is actually shutting down, or every assigned collaboration task is complete **and** the user has clearly ended listener mode.
+- If the host cannot continue listening without blocking new user prompts, return control with a precise status such as “still registered; check the room on my next turn.” Do not falsely say listening continues in the background.
 
 ## Ask flow (initiator)
 
@@ -65,7 +76,7 @@ monitor → daemon/background process → xtalk_wait with bounded timeout
 
 4. Decide: enough info? Ask a follow-up? Same-thread follow-up = `xtalk_ask(to=..., body=..., thread=<tid>)`, then wait again.
 
-5. Done → `xtalk_close(thread=<tid>, summary=..., report_to=<your alias>)` if you'll report, or ask the other session to close.
+5. Done → `xtalk_close(thread=<tid>, summary=..., report_to=<your alias>)` if you'll report, or ask the other session to close. Then return to room listening; do not leave the room.
 
 ## Listen flow (responder)
 
@@ -87,7 +98,7 @@ monitor → daemon/background process → xtalk_wait with bounded timeout
 6. Watch for `kind: "done"`. When one arrives:
    - `xtalk_read` for summary.
    - If `meta.report_to` == your sid, give your user the full report; else short ack: "Teamwork done. Session `<alias>` will report the details."
-   - `xtalk_leave()` and TaskStop the Monitor.
+   - Mark only that thread complete and return to Monitor. Stop Monitor and leave only under the explicit room exit conditions above.
 
 ### Fallback for clients without Monitor
 
@@ -96,7 +107,7 @@ If the recommended primitive is absent or cannot resume the agent, replace step 
 ```
 while user hasn't cancelled:
     result = xtalk_wait(timeout_ms=30000)
-    if result.timed_out: continue
+    if result.timed_out: continue  # timeout is idle time, not room completion
     handle result.event as above
 ```
 
@@ -167,6 +178,8 @@ When you receive a `deadlock_hint`:
 ## Anti-patterns
 
 - **Don't** call `xtalk_ask` and then return control to your user without waiting — the reply arrives to a dead session.
+- **Don't** call `xtalk_leave` after a timeout, a single reply, a closed thread, or a peer departure.
+- **Don't** end listener mode while assigned room work is still open; reply, close the relevant thread if appropriate, then listen again.
 - **Don't** enter listener mode without user consent — you lock the session out of user prompts.
 - **Don't** claim consensus on "done" unilaterally — if you and the other session disagree on completeness, that disagreement is data for the user to resolve.
 - **Don't** flood the other session with tiny asks — batch related questions into one message.
