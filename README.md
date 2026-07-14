@@ -136,7 +136,7 @@ Use TLS/WSS and authentication in front of an Internet-facing relay. The bundled
 PYTHONPATH=. .venv/bin/pytest -q
 ```
 
-Current suite: 46 tests, including real stdio MCP subprocess dogfood, membership notifications, concurrent storage migration, lease renewal, and project-room restart recovery.
+Current suite: 48 tests, including real stdio MCP subprocess dogfood, membership notifications, concurrent storage migration, lease renewal, and project-room restart recovery.
 
 ## Scope
 
