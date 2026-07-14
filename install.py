@@ -68,7 +68,10 @@ def install_mcp(*, apply_config: bool, clients: list[str] | None, quiet_pip: boo
             if not daemon_pid.exists():
                 break
             time.sleep(0.1)
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        # `subprocess.CREATE_NEW_PROCESS_GROUP` only exists on Windows —
+        # referencing it inside the ternary would evaluate both branches on
+        # POSIX and raise AttributeError before the daemon can even restart.
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
         subprocess.Popen(
             [str(xtalk), "daemon", "start"], cwd=RUNTIME,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -81,8 +84,15 @@ def install_mcp(*, apply_config: bool, clients: list[str] | None, quiet_pip: boo
     client_args = [item for client in selected_clients(clients) for item in ("--client", client)]
     run(xtalk, "install", "--server", server, *client_args, "--dry-run")
     if not apply_config:
-        answer = input("Apply these MCP client configuration changes? [y/N] ").strip().lower()
-        apply_config = answer in {"y", "yes"}
+        # Non-interactive shells (CI, docker exec, piped stdin) would raise
+        # EOFError on input(); refuse rather than crash so the caller sees a
+        # clear message and can rerun with --yes.
+        if not sys.stdin.isatty():
+            print("Non-interactive shell; skipping config changes. Re-run with --yes to apply.")
+            apply_config = False
+        else:
+            answer = input("Apply these MCP client configuration changes? [y/N] ").strip().lower()
+            apply_config = answer in {"y", "yes"}
     if apply_config:
         run(xtalk, "install", "--server", server, *client_args)
     else:

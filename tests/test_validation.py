@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import pytest
+from pathlib import Path
+
+from xtalk import storage
 
 from tests.conftest import new_ctx, switch
 
@@ -43,3 +46,21 @@ def test_leave_without_register_returns_note(server_module, tmp_path):
     result = server_module.handle_leave({})
     assert result["ok"] is True
     assert "not registered" in result.get("note", "")
+
+
+def test_concurrent_read_retries_sharing_violation(tmp_path, monkeypatch):
+    path = tmp_path / "inbox.jsonl"
+    path.write_text("event\n")
+    original = Path.read_text
+    calls = 0
+
+    def flaky_read(self, *args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if self == path and calls == 1:
+            raise PermissionError("sharing violation")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read)
+    assert storage.concurrent_read_text(path) == "event\n"
+    assert calls == 2

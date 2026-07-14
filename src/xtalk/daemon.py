@@ -16,6 +16,7 @@ import contextlib
 import json
 import signal
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,9 @@ BACKOFF_MAX = 60.0
 STATE_FILE = "daemon.state.json"
 SUBSCRIPTIONS_FILE = "subscriptions.json"
 PID_FILE = "daemon.pid"
+
+# Serializes read-modify-write on subscriptions.json across daemon tasks.
+_CURSOR_RMW_LOCK = threading.Lock()
 
 
 def _daemon_dir() -> Path:
@@ -102,22 +106,24 @@ def load_subscriptions() -> list[Subscription]:
 
 
 def add_subscription(sub: Subscription) -> None:
-    path = _subscriptions_path()
-    existing = load_subscriptions()
-    for i, s in enumerate(existing):
-        if s.relay_url == sub.relay_url and s.room_id == sub.room_id and s.sid == sub.sid:
-            existing[i] = sub
-            break
-    else:
-        existing.append(sub)
-    atomic_json(path, [_sub_to_dict(s) for s in existing])  # type: ignore[arg-type]
+    with _CURSOR_RMW_LOCK:
+        path = _subscriptions_path()
+        existing = load_subscriptions()
+        for i, s in enumerate(existing):
+            if s.relay_url == sub.relay_url and s.room_id == sub.room_id and s.sid == sub.sid:
+                existing[i] = sub
+                break
+        else:
+            existing.append(sub)
+        atomic_json(path, [_sub_to_dict(s) for s in existing])  # type: ignore[arg-type]
 
 
 def remove_subscription(relay_url: str, room_id: str, sid: str) -> None:
-    path = _subscriptions_path()
-    existing = load_subscriptions()
-    filtered = [s for s in existing if not (s.relay_url == relay_url and s.room_id == room_id and s.sid == sid)]
-    atomic_json(path, [_sub_to_dict(s) for s in filtered])  # type: ignore[arg-type]
+    with _CURSOR_RMW_LOCK:
+        path = _subscriptions_path()
+        existing = load_subscriptions()
+        filtered = [s for s in existing if not (s.relay_url == relay_url and s.room_id == room_id and s.sid == sid)]
+        atomic_json(path, [_sub_to_dict(s) for s in filtered])  # type: ignore[arg-type]
 
 
 def _sub_to_dict(sub: Subscription) -> dict[str, Any]:
@@ -133,19 +139,38 @@ def _sub_to_dict(sub: Subscription) -> dict[str, Any]:
 
 
 def _save_cursor(sub: Subscription) -> None:
-    """Persist the daemon's advance cursor so restarts resume without duplicates."""
-    existing = load_subscriptions()
-    for s in existing:
-        if s.relay_url == sub.relay_url and s.room_id == sub.room_id and s.sid == sub.sid:
-            s.resume_cursor = sub.resume_cursor
-            break
-    atomic_json(_subscriptions_path(), [_sub_to_dict(s) for s in existing])  # type: ignore[arg-type]
+    """Persist the daemon's advance cursor so restarts resume without duplicates.
+
+    In-process serialization is required: two concurrent `_service` tasks
+    racing on read-modify-write of subscriptions.json would otherwise clobber
+    each other's cursor updates. `atomic_json` handles cross-process safety;
+    this lock covers the intra-process race between async tasks that both
+    hop to the executor thread pool.
+    """
+    with _CURSOR_RMW_LOCK:
+        existing = load_subscriptions()
+        for s in existing:
+            if s.relay_url == sub.relay_url and s.room_id == sub.room_id and s.sid == sub.sid:
+                s.resume_cursor = sub.resume_cursor
+                break
+        atomic_json(_subscriptions_path(), [_sub_to_dict(s) for s in existing])  # type: ignore[arg-type]
 
 
 def _deliver_to_inbox(room_id: str, sid: str, event: dict[str, Any]) -> None:
-    """Write an event line into the recipient's local inbox JSONL."""
+    """Write an event line into the recipient's local inbox JSONL.
+
+    Relay's message cap is deliberately larger than local storage's to allow
+    E2EE envelope overhead. When bridging back into local storage, re-apply
+    the local body cap so downstream readers can trust it.
+    """
     room = Room(room_id)
     inbox = room.inbox_path(sid)
+    body = event.get("body", "")
+    if isinstance(body, str) and len(body.encode("utf-8")) > storage.MAX_BODY_BYTES:
+        # Truncated payloads are still useful for observability — carry a
+        # marker so the reader can tell the difference.
+        body = body.encode("utf-8")[: storage.MAX_BODY_BYTES].decode("utf-8", errors="ignore")
+        event = {**event, "body": body, "truncated": True}
     entry = {
         "msg_id": event.get("msg_id", ""),
         "tid": event.get("tid", ""),
@@ -154,6 +179,8 @@ def _deliver_to_inbox(room_id: str, sid: str, event: dict[str, Any]) -> None:
         "kind": event.get("kind", ""),
         "ts": event.get("ts", ""),
     }
+    if event.get("in_reply_to"):
+        entry["in_reply_to"] = event["in_reply_to"]
     atomic_append(inbox, json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
 
 
@@ -267,6 +294,14 @@ class DaemonSupervisor:
 
 
 def is_running() -> tuple[bool, int | None]:
+    """Return (running?, pid). Guards against PID reuse across reboots.
+
+    A bare `os.kill(pid, 0)` merely proves *some* process owns that PID —
+    with modern uptime and rapid PID recycling on Linux, that could be an
+    unrelated user program the daemon PID file happened to inherit. Match
+    the state file's recorded executable against the live one to be safe.
+    """
+    import os
     path = _pid_path()
     if not path.exists():
         return False, None
@@ -275,10 +310,19 @@ def is_running() -> tuple[bool, int | None]:
     except (ValueError, FileNotFoundError):
         return False, None
     try:
-        __import__("os").kill(pid, 0)
-        return True, pid
+        os.kill(pid, 0)
     except OSError:
         return False, pid
+    recorded_exe: str | None = None
+    if _state_path().exists():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            recorded_exe = json.loads(_state_path().read_text(encoding="utf-8")).get("executable")
+    if recorded_exe:
+        with contextlib.suppress(OSError):
+            live_exe = os.readlink(f"/proc/{pid}/exe")
+            if os.path.realpath(live_exe) != os.path.realpath(recorded_exe):
+                return False, pid
+    return True, pid
 
 
 def start() -> None:

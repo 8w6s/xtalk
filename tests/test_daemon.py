@@ -70,11 +70,11 @@ async def test_daemon_bridges_relay_event_into_inbox(tmp_path: Path, monkeypatch
         # Wait for daemon to deliver into inbox
         inbox = tmp_path / "rooms" / "room-daemon" / "inbox" / "sid-listener.jsonl"
         for _ in range(30):
-            if inbox.exists() and inbox.read_text().strip():
+            if inbox.exists() and storage.concurrent_read_text(inbox).strip():
                 break
             await asyncio.sleep(0.1)
         assert inbox.exists(), "daemon did not create inbox file"
-        line = json.loads(inbox.read_text().splitlines()[0])
+        line = json.loads(storage.concurrent_read_text(inbox).splitlines()[0])
         assert line["msg_id"] == "msg-1"
         assert line["room"] == "room-daemon"
 

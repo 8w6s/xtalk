@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import sqlite3
 import time
@@ -211,11 +212,16 @@ class Relay:
         async with self._subs_lock:
             targets = list(self._subs.get(room_id, []))
         payload = json.dumps({"op": "event", "cursor": cursor, "room": room_id, "event": msg}, ensure_ascii=False)
-        for sub in targets:
-            if skip_sid and sub.sid == skip_sid:
-                continue
+
+        async def _send(sub: _Subscription) -> None:
             with contextlib.suppress(ConnectionResetError, RuntimeError):
                 await sub.ws.send_str(payload)
+
+        # Fan out concurrently — one slow subscriber otherwise stalls delivery
+        # to everyone else in the room (head-of-line blocking).
+        recipients = [sub for sub in targets if not (skip_sid and sub.sid == skip_sid)]
+        if recipients:
+            await asyncio.gather(*(_send(s) for s in recipients), return_exceptions=True)
 
     async def _register(self, sub: _Subscription) -> None:
         async with self._subs_lock:
@@ -279,7 +285,10 @@ class Relay:
         if not room:
             await self._send_err(ws, "unknown_room", "no such room")
             return None
-        if room["invite_verifier"] != verifier:
+        # Constant-time compare: a plain `!=` short-circuits on the first
+        # differing byte, letting a network attacker measure how many bytes
+        # of the verifier they've guessed correctly.
+        if not hmac.compare_digest(room["invite_verifier"], verifier):
             await self._send_err(ws, "bad_verifier", "invite verifier mismatch")
             return None
         resume = int(frame.get("resume_cursor") or await self.store.get_cursor(room_id, sid))
@@ -315,7 +324,10 @@ class Relay:
         tid = str(frame.get("tid", ""))
         msg = {**msg, "tid": tid, "room": room_id}
         cursor = await self.store.append_event(room_id, room["ttl_seconds"], msg)
-        await self.store.set_cursor(room_id, sub.sid, cursor)
+        # Deliberately do NOT set_cursor for the publisher: cursor tracks a
+        # subscriber's delivered position, and stamping the publisher here
+        # made them jump past events they hadn't seen when they later
+        # reconnected as a subscriber.
         await self._broadcast(room_id, cursor, msg, skip_sid=sub.sid)
         await ws.send_str(json.dumps({"op": "ack", "cursor": cursor, "msg_id": msg["msg_id"]}))
 

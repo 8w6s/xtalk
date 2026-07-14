@@ -177,7 +177,7 @@ python -m pip install -e . pytest pytest-asyncio
 python -m pytest -q
 ```
 
-Current suite: 58 tests, including direct cross-platform stdio initialization, two-process MCP SDK dogfood on POSIX, installer failure handling, membership notifications, concurrent storage migration, lease renewal, and project-room restart recovery. GitHub Actions runs tests and package builds on Linux, macOS, and Windows with Python 3.10 and 3.14.
+Current suite: 95 tests, covering cross-platform stdio initialization, Windows sharing-violation recovery, two-process MCP SDK dogfood on POSIX, installer failure handling, membership notifications, concurrent storage migration, lease renewal, project-room restart recovery, mention parsing + wake semantics, unbounded `xtalk_wait`, the task ledger (assign/ack/tasks) with per-task locking, `xtalk_stream` deltas, and session lifecycle (register rename, unregister teardown). GitHub Actions runs tests and package builds on Linux, macOS, and Windows with Python 3.10 and 3.14.
 
 ## Scope
 
