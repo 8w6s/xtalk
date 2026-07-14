@@ -84,6 +84,12 @@ _HEARTBEAT_LOCK = threading.Lock()
 
 def _heartbeat_tick(room_id: str, sid: str, alias: str, client: str, pid: int) -> None:
     key = (room_id, sid)
+    # Check cancellation under lock BEFORE writing — avoids a late heartbeat
+    # event after `_cancel_heartbeat` (e.g. after leave) that would keep the
+    # departed session visible for another lease window.
+    with _HEARTBEAT_LOCK:
+        if key not in _HEARTBEAT_TIMERS:
+            return
     try:
         Room(room_id).append_member_event({
             "event": "heartbeat", "sid": sid, "alias": alias,
@@ -111,7 +117,7 @@ def _arm_heartbeat(room_id: str, sid: str, alias: str) -> None:
             previous.cancel()
         timer = threading.Timer(
             HEARTBEAT_INTERVAL_SECONDS, _heartbeat_tick,
-            args=(room_id, sid, alias, CTX.client, os.getppid()),
+            args=(room_id, sid, alias, CTX.client, os.getpid()),
         )
         timer.daemon = True
         _HEARTBEAT_TIMERS[key] = timer
@@ -214,7 +220,7 @@ def _join(room: Room, alias: str) -> None:
     existing = room.current_members()
     if any(m.get("alias") == alias and m.get("sid") != CTX.sid for m in existing):
         raise ValueError(f"alias already in use in room: {alias}")
-    room.append_member_event({"event": "join", "sid": CTX.sid, "alias": alias, "epoch": time.time(), "ts": now_iso(), "client": CTX.client, "pid": os.getppid()})
+    room.append_member_event({"event": "join", "sid": CTX.sid, "alias": alias, "epoch": time.time(), "ts": now_iso(), "client": CTX.client, "pid": os.getpid()})
     CTX.memberships[room.id] = alias
     CTX.active_room = room.id
     CTX.persist()
