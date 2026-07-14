@@ -181,3 +181,59 @@ def test_presence_tool_explicit(server_module, tmp_path):
     assert next(m for m in disc["members"] if m["sid"] == "sid-A")["mode"] == "listening"
     r2 = server_module.handle_presence({"mode": "idle"})
     assert r2["presence"] == "idle"
+
+
+def test_heartbeat_pid_is_current_process_id(server_module, tmp_path, monkeypatch):
+    import os
+    import json
+    ws = tmp_path / "proj"
+    ws.mkdir()
+
+    monkeypatch.setattr(server_module, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+
+    _, ctx = _register(server_module, "agent", "sid-A", str(ws))
+    room = server_module.storage.Room(ctx.active_room)
+
+    try:
+        members = room.current_members()
+        assert len(members) == 1
+        assert members[0]["pid"] == os.getpid()
+
+        time.sleep(0.1)
+
+        log_text = room.members_path().read_text(encoding="utf-8")
+        events = [json.loads(line) for line in log_text.splitlines()]
+
+        heartbeat_events = [e for e in events if e.get("event") == "heartbeat"]
+        assert heartbeat_events
+        for hb in heartbeat_events:
+            assert hb["pid"] == os.getpid()
+    finally:
+        server_module._cancel_all_heartbeats()
+
+
+def test_cancel_heartbeat_prevents_late_ticks(server_module, tmp_path, monkeypatch):
+    import json
+    ws = tmp_path / "proj"
+    ws.mkdir()
+
+    monkeypatch.setattr(server_module, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
+
+    _, ctx = _register(server_module, "agent", "sid-A", str(ws))
+    room = server_module.storage.Room(ctx.active_room)
+
+    try:
+        # Cancel heartbeat immediately
+        server_module._cancel_heartbeat(room.id, "sid-A")
+
+        # Sleep to allow any pending timers to execute their tick
+        time.sleep(0.15)
+
+        log_text = room.members_path().read_text(encoding="utf-8")
+        events = [json.loads(line) for line in log_text.splitlines()]
+
+        heartbeat_events = [e for e in events if e.get("event") == "heartbeat"]
+        assert not heartbeat_events
+    finally:
+        server_module._cancel_all_heartbeats()
+
