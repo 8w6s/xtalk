@@ -2,7 +2,7 @@
 # Guided macOS/Linux installer. install.py remains the cross-platform core.
 set -eu
 
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 REPO="8w6s/xtalk"
 
 # Agent shells often capture stdout through a pipe even though their UI renders ANSI.
