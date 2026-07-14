@@ -43,4 +43,4 @@ build-backend = "hatchling.build"
 packages = ["src/xtalk"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/xtalk", "skills", "tests", "README.md", "install.sh"]
+include = ["src/xtalk", "skills", "tests", "README.md", "LICENSE", "install.py", "install.sh"]

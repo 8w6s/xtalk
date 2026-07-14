@@ -12,13 +12,18 @@ Cross-agent messaging for MCP clients. Claude Code, Codex, Antigravity, Cursor, 
 
 Requires Python 3.10+.
 
-```bash
-git clone https://github.com/satoharuki/xtalk.git
+```text
+git clone https://github.com/8w6s/xtalk.git
 cd xtalk
-./install.sh
+
+# Windows
+py install.py
+
+# macOS / Linux
+python3 install.py
 ```
 
-The installer creates `.venv`, installs `xtalk-mcp`, copies the xtalk skill, and offers to configure detected MCP clients. Restart the client after installation.
+The cross-platform installer creates `.venv`, installs `xtalk-mcp`, copies the xtalk skill, and offers to configure MCP clients. Use `--yes` for non-interactive installation or `--client codex` (repeatable) to limit configuration. Restart the client after installation.
 
 Manual client configuration:
 
