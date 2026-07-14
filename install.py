@@ -35,7 +35,7 @@ def copy_skill(destination: Path) -> None:
     print(f"Installed skill: {destination}")
 
 
-def install(*, apply_config: bool, clients: list[str] | None) -> int:
+def install(*, apply_config: bool, clients: list[str] | None, copy_bundled_skill: bool = True) -> int:
     if not venv_bin("python").exists():
         print(f"Creating virtual environment: {VENV}")
         run(sys.executable, "-m", "venv", VENV)
@@ -44,9 +44,10 @@ def install(*, apply_config: bool, clients: list[str] | None) -> int:
     run(python, "-m", "pip", "install", "--upgrade", "pip")
     run(python, "-m", "pip", "install", "-e", ROOT)
 
-    home = Path.home()
-    copy_skill(Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")) / "skills" / "xtalk")
-    copy_skill(Path(os.environ.get("CODEX_HOME", home / ".codex")) / "skills" / "xtalk")
+    if copy_bundled_skill:
+        home = Path.home()
+        copy_skill(Path(os.environ.get("CLAUDE_CONFIG_DIR", home / ".claude")) / "skills" / "xtalk")
+        copy_skill(Path(os.environ.get("CODEX_HOME", home / ".codex")) / "skills" / "xtalk")
 
     xtalk = venv_bin("xtalk")
     server = venv_bin("xtalk-mcp")
@@ -71,13 +72,14 @@ def install(*, apply_config: bool, clients: list[str] | None) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("-y", "--yes", action="store_true", help="Apply MCP config changes without prompting")
+    parser.add_argument("--skip-skill-copy", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--client", action="append",
         choices=["claude-code", "codex", "cursor", "antigravity"],
         help="Configure only this client (repeatable)",
     )
     args = parser.parse_args(argv)
-    return install(apply_config=args.yes, clients=args.client)
+    return install(apply_config=args.yes, clients=args.client, copy_bundled_skill=not args.skip_skill_copy)
 
 
 if __name__ == "__main__":

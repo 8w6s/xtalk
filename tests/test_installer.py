@@ -6,6 +6,14 @@ from pathlib import Path
 
 
 INSTALLER = Path(__file__).parents[1] / "install.py"
+SHELL_INSTALLER = Path(__file__).parents[1] / "install.sh"
+
+
+def test_shell_installer_uses_official_skills_cli_and_maps_antigravity():
+    source = SHELL_INSTALLER.read_text()
+    assert 'skills add "$REPO" --skill xtalk --global --yes' in source
+    assert "antigravity) agent=antigravity-cli" in source
+    assert 'python3 "$HERE/install.py" --skip-skill-copy "$@"' in source
 SPEC = importlib.util.spec_from_file_location("xtalk_installer", INSTALLER)
 assert SPEC and SPEC.loader
 installer = importlib.util.module_from_spec(SPEC)

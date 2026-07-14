@@ -20,10 +20,10 @@ cd xtalk
 py install.py
 
 # macOS / Linux
-python3 install.py
+./install.sh
 ```
 
-The cross-platform installer creates `.venv`, installs `xtalk-mcp`, copies the xtalk skill, and offers to configure MCP clients. Use `--yes` for non-interactive installation or `--client codex` (repeatable) to limit configuration. Restart the client after installation.
+The guided macOS/Linux installer shows each setup stage, creates `.venv`, installs `xtalk-mcp`, configures selected MCP clients, runs diagnostics, and installs the current skill from this GitHub repo through `npx skills`. Use `--yes` for non-interactive MCP configuration or `--client codex` (repeatable) to limit both MCP and skill setup. Windows uses the cross-platform Python installer. Restart the client after installation.
 
 To install or update only the agent skill with the cross-agent [`skills` CLI](https://github.com/vercel-labs/skills):
 
