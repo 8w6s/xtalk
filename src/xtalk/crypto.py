@@ -1,0 +1,87 @@
+"""End-to-end encryption for xtalk e2ee rooms.
+
+Design:
+- Invite URI carries the room secret in the fragment (`xtalk://join/<b64>#<secret>`)
+  so HTTP intermediaries do not log it.
+- HKDF-SHA256 derives two 32-byte keys from the secret: encryption key and
+  authentication key. The auth key doubles as the invite verifier the relay
+  stores (`sha256(auth_key)`), so relays never see the raw secret either.
+- Message bodies are sealed with ChaCha20-Poly1305. AAD binds protocol version,
+  room id, msg id, and message kind so the relay cannot swap ciphertext across
+  rooms or messages.
+"""
+from __future__ import annotations
+
+import base64
+import json
+import os
+from typing import Any
+
+from cryptography.hazmat.primitives import hashes, hmac
+from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+E2EE_VERSION = "xtalk-e2ee/1"
+_KEY_LEN = 32
+
+
+def _hkdf(secret: bytes, info: bytes, length: int = _KEY_LEN) -> bytes:
+    return HKDF(algorithm=hashes.SHA256(), length=length, salt=None, info=info).derive(secret)
+
+
+def derive_keys(secret: str) -> tuple[bytes, bytes]:
+    """Return (enc_key, auth_key) both 32 bytes."""
+    raw = secret.encode("utf-8")
+    return _hkdf(raw, b"xtalk enc key"), _hkdf(raw, b"xtalk auth key")
+
+
+def invite_verifier(auth_key: bytes) -> str:
+    """Hex digest a relay can store to verify joiners without seeing the secret."""
+    h = hmac.HMAC(auth_key, hashes.SHA256())
+    h.update(b"invite-verifier")
+    return h.finalize().hex()
+
+
+def _aad(room_id: str, msg_id: str, kind: str) -> bytes:
+    return json.dumps({"v": E2EE_VERSION, "room": room_id, "msg": msg_id, "kind": kind}, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def encrypt_body(enc_key: bytes, room_id: str, msg_id: str, kind: str, body: str) -> dict[str, str]:
+    aead = ChaCha20Poly1305(enc_key)
+    nonce = os.urandom(12)
+    ct = aead.encrypt(nonce, body.encode("utf-8"), _aad(room_id, msg_id, kind))
+    return {
+        "v": E2EE_VERSION,
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ciphertext": base64.b64encode(ct).decode("ascii"),
+    }
+
+
+def decrypt_body(enc_key: bytes, room_id: str, msg_id: str, kind: str, envelope: dict[str, Any]) -> str:
+    if envelope.get("v") != E2EE_VERSION:
+        raise ValueError(f"unsupported e2ee envelope version: {envelope.get('v')!r}")
+    aead = ChaCha20Poly1305(enc_key)
+    nonce = base64.b64decode(envelope["nonce"])
+    ct = base64.b64decode(envelope["ciphertext"])
+    plain = aead.decrypt(nonce, ct, _aad(room_id, msg_id, kind))
+    return plain.decode("utf-8")
+
+
+def encode_invite(payload: dict[str, Any], secret: str) -> str:
+    body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
+    return f"xtalk://join/{body}#{secret}" if secret else f"xtalk://join/{body}"
+
+
+def decode_invite(uri: str) -> tuple[dict[str, Any], str]:
+    if not uri.startswith("xtalk://join/"):
+        raise ValueError("invalid invite URI")
+    rest = uri.removeprefix("xtalk://join/")
+    secret = ""
+    if "#" in rest:
+        rest, secret = rest.split("#", 1)
+    rest += "=" * (-len(rest) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(rest))
+    except Exception as exc:
+        raise ValueError("invalid invite URI") from exc
+    return payload, secret

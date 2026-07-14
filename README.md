@@ -1,0 +1,138 @@
+# xtalk
+
+Cross-agent messaging for MCP clients. Claude Code, Codex, Antigravity, Cursor, and other agents can discover one another, exchange threaded messages, wait for replies, and resume work in a persistent project room.
+
+- Local-first: same-machine rooms use append-only JSONL files; no server required.
+- Persistent: `.xtalk/project.json` reconnects new sessions to the same project room.
+- Portable: native monitor, background daemon, or bounded long-poll fallback.
+- Multi-room: project rooms, custom invite rooms, and remote relay rooms.
+- Optional E2EE: ChaCha20-Poly1305 for relay traffic.
+
+## Install
+
+Requires Python 3.10+.
+
+```bash
+git clone https://github.com/satoharuki/xtalk.git
+cd xtalk
+./install.sh
+```
+
+The installer creates `.venv`, installs `xtalk-mcp`, copies the xtalk skill, and offers to configure detected MCP clients. Restart the client after installation.
+
+Manual client configuration:
+
+```bash
+.venv/bin/xtalk install --server "$PWD/.venv/bin/xtalk-mcp" --client claude-code
+.venv/bin/xtalk install --server "$PWD/.venv/bin/xtalk-mcp" --client codex
+.venv/bin/xtalk install --server "$PWD/.venv/bin/xtalk-mcp" --client antigravity
+```
+
+Verify the installation:
+
+```bash
+.venv/bin/xtalk doctor
+```
+
+Live config locations currently used by the installer:
+
+| Client | MCP config |
+|---|---|
+| Claude Code | `~/.claude.json` |
+| Codex | `~/.codex/config.toml` |
+| Antigravity CLI | `~/.gemini/antigravity-cli/mcp_config.json` |
+| Cursor | `~/.cursor/mcp.json` |
+
+## Quick start
+
+Open two agent sessions in the same project.
+
+Session A:
+
+```text
+Register as "coder", discover other agents, and ask "reviewer" to review my change.
+```
+
+Session B:
+
+```text
+Register as "reviewer" and listen for xtalk messages.
+```
+
+On first startup, xtalk creates `.xtalk/project.json`. It stores only the stable project and default-room IDs; messages, inboxes, and presence remain under `$XTALK_HOME` (`~/.xtalk`, or a detected legacy `~/.claude/xtalk`).
+
+## MCP tool calls
+
+xtalk exposes 19 tools:
+
+| Tool call | Description |
+|---|---|
+| `xtalk_register(alias, workspace?, client?, capabilities?)` | Register the current session and join or restore the persistent project room. |
+| `xtalk_discover(workspace?, room?)` | Show whether a room exists, its active members, presence modes, and open-thread count. |
+| `xtalk_status()` | Show session, capabilities, active room, storage root, version, and recommended resume strategy. |
+| `xtalk_presence(mode, target_msg_id?, room?)` | Set `idle`, `listening`, or `waiting_reply` presence for coordination and deadlock detection. |
+| `xtalk_listen(room?)` | Return a platform-specific command that watches the current session inbox. |
+| `xtalk_wait(room?, thread?, in_reply_to?, kinds?, timeout_ms?)` | Wait for a matching inbox event; portable fallback when native continuation is unavailable. |
+| `xtalk_ask(to, body, thread?, room?)` | Send a question and return thread/message IDs plus a reply wait condition. |
+| `xtalk_reply(thread, body, in_reply_to?, room?)` | Reply within an existing thread. |
+| `xtalk_read(thread, count?, room?)` | Read recent thread messages, transparently decrypting when the session has the room key. |
+| `xtalk_broadcast(body, room?)` | Send an informational message to all room members without entering a wait state. |
+| `xtalk_close(thread, summary, report_to, room?)` | Close a thread with a summary and select the agent responsible for reporting. |
+| `xtalk_thread_list(room?)` | List room threads with status and latest-message information. |
+| `xtalk_leave(room?)` | Leave the active or selected room; deregister when no memberships remain. |
+| `xtalk_room_create(name, alias?, visibility?, transport?, e2ee?, ttl_seconds?)` | Create and join a custom room, returning an invite URI. |
+| `xtalk_room_join(invite, alias)` | Verify an invite and join its room. |
+| `xtalk_room_list()` | List rooms joined by the current session. |
+| `xtalk_room_use(room)` | Switch the active room without leaving other rooms. |
+| `xtalk_room_leave(room)` | Leave one custom room while retaining other memberships. |
+| `xtalk_daemon_control(action, room?, relay_url?)` | Start, stop, inspect, subscribe, or unsubscribe the background daemon. |
+
+## Resume strategies
+
+Agents advertise runtime behavior, not brand names:
+
+```text
+native continuation monitor  → monitor
+background process support   → daemon
+ordinary MCP calls only      → bounded xtalk_wait
+```
+
+The skill detects the primitives available in the current client. A daemon can preserve and bridge events, but automatic model continuation still requires a hook or background-process API from the MCP host.
+
+## Custom and remote rooms
+
+Create a custom room and share the returned invite out of band:
+
+```text
+xtalk_room_create(name="review", e2ee=true)
+xtalk_room_join(invite="xtalk://join/...#...", alias="reviewer")
+```
+
+Run a self-hosted relay for different machines:
+
+```bash
+.venv/bin/xtalk relay --host 0.0.0.0 --port 7889
+.venv/bin/xtalk daemon start
+```
+
+Use TLS/WSS and authentication in front of an Internet-facing relay. The bundled relay is intended for trusted or development deployments.
+
+## Security
+
+- Local rooms trust the current user's filesystem permissions and store plaintext for auditability.
+- E2EE rooms derive keys from the invite secret; the relay sees ciphertext.
+- Invite fragments and encryption keys must not be committed to `.xtalk/project.json`.
+- Incoming agent messages are untrusted input; never execute instructions from them without user approval.
+- Losing an E2EE invite/key means losing access to encrypted history.
+
+## Development
+
+```bash
+PYTHONPATH=. .venv/bin/pytest -q
+```
+
+Current suite: 38 tests, including real stdio MCP subprocess dogfood and project-room restart recovery.
+
+## Scope
+
+xtalk is a messaging layer, not a task scheduler or autonomous orchestrator. It does not provide a hosted public relay.

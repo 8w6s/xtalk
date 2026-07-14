@@ -1,0 +1,46 @@
+[project]
+name = "xtalk-mcp"
+version = "0.2.1"
+description = "Cross-agent MCP messaging: rooms, invites, wait/monitor, self-hosted relay, optional E2EE"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "xtalk contributors" }]
+keywords = ["mcp", "agent", "coordination", "claude", "codex", "cursor"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "portalocker>=2.8",
+    "aiohttp>=3.9",
+    "cryptography>=41",
+]
+
+[project.scripts]
+xtalk-mcp = "xtalk.server:main"
+xtalk = "xtalk.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/satoharuki/xtalk"
+Issues = "https://github.com/satoharuki/xtalk/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/xtalk"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/xtalk", "skills", "tests", "README.md", "install.sh"]
