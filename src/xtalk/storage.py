@@ -30,6 +30,40 @@ except ImportError:
         _LOCK_BACKEND = "none"
 
 
+def _converge_posix_root(modern: Path, legacy: Path) -> Path:
+    """Return one canonical root and migrate a legacy-only install safely.
+
+    Every process returns ``modern``. When only the legacy directory exists,
+    a symlink is created once so old data remains available without copying.
+    Independent modern and legacy stores are rejected to prevent silent data
+    loss. FileExistsError makes concurrent first-start migration race-safe.
+    """
+    modern_present = os.path.lexists(modern)
+    legacy_present = legacy.exists()
+
+    if modern_present and legacy_present:
+        try:
+            if modern.samefile(legacy):
+                return modern
+        except OSError:
+            pass
+        raise RuntimeError(
+            f"conflicting xtalk stores: {modern} and {legacy}; "
+            "merge them or set XTALK_HOME explicitly"
+        )
+
+    if legacy_present and not modern_present:
+        modern.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            modern.symlink_to(legacy, target_is_directory=True)
+        except FileExistsError:  # another MCP process migrated first
+            if not modern.samefile(legacy):
+                raise RuntimeError(
+                    f"xtalk migration race produced conflicting stores: {modern} and {legacy}"
+                )
+    return modern
+
+
 def _default_root() -> Path:
     configured = os.environ.get("XTALK_HOME")
     if configured:
@@ -38,7 +72,7 @@ def _default_root() -> Path:
         return Path(os.environ.get("LOCALAPPDATA", Path.home())) / "xtalk"
     modern = Path.home() / ".xtalk"
     legacy = Path.home() / ".claude" / "xtalk"
-    return legacy if legacy.exists() and not modern.exists() else modern
+    return _converge_posix_root(modern, legacy)
 
 
 XTALK_ROOT = _default_root()

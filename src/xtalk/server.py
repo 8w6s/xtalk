@@ -501,7 +501,7 @@ def handle_wait(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_status(args: dict[str, Any]) -> dict[str, Any]:
-    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.1"}
+    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.2"}
 
 
 def handle_presence(args: dict[str, Any]) -> dict[str, Any]:

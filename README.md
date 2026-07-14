@@ -64,7 +64,7 @@ Session B:
 Register as "reviewer" and listen for xtalk messages.
 ```
 
-On first startup, xtalk creates `.xtalk/project.json`. It stores only the stable project and default-room IDs; messages, inboxes, and presence remain under `$XTALK_HOME` (`~/.xtalk`, or a detected legacy `~/.claude/xtalk`).
+On first startup, xtalk creates `.xtalk/project.json`. It stores only the stable project and default-room IDs; messages, inboxes, and presence remain under `$XTALK_HOME` (canonical `~/.xtalk` on POSIX). Legacy-only `~/.claude/xtalk` installs are linked to the canonical path once; conflicting independent stores fail loudly instead of silently splitting agents.
 
 ## MCP tool calls
 
