@@ -24,6 +24,7 @@ from typing import Any
 import aiohttp
 
 from . import storage
+from . import __version__
 from .storage import Room, XTALK_ROOT, atomic_append, atomic_json
 
 
@@ -170,7 +171,14 @@ class DaemonSupervisor:
         self._session: aiohttp.ClientSession | None = None
 
     async def run(self) -> None:
-        _pid_path().write_text(str(__import__("os").getpid()))
+        pid = __import__("os").getpid()
+        _pid_path().write_text(str(pid))
+        atomic_json(_state_path(), {
+            "pid": pid,
+            "executable": sys.executable,
+            "version": __version__,
+            "started_at": time.time(),
+        })
         self._session = aiohttp.ClientSession()
         try:
             while not self._stopped.is_set():
@@ -189,6 +197,8 @@ class DaemonSupervisor:
                 await self._session.close()
             with contextlib.suppress(FileNotFoundError):
                 _pid_path().unlink()
+            with contextlib.suppress(FileNotFoundError):
+                _state_path().unlink()
 
     def stop(self) -> None:
         self._stopped.set()
@@ -306,10 +316,15 @@ def stop() -> bool:
 def status() -> dict[str, Any]:
     running, pid = is_running()
     subs = load_subscriptions()
+    runtime: dict[str, Any] = {}
+    if _state_path().exists():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            runtime = json.loads(_state_path().read_text(encoding="utf-8"))
     return {
         "running": running,
         "pid": pid,
         "subscriptions": len(subs),
         "state_file": str(_subscriptions_path()),
         "root": str(storage.XTALK_ROOT),
+        "runtime": runtime,
     }

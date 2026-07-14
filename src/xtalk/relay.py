@@ -35,6 +35,7 @@ from typing import Any
 
 from aiohttp import WSMsgType, web
 
+# Wire-protocol version; intentionally independent from the package version.
 RELAY_VERSION = "0.2.0"
 PROTOCOL_VERSION = "xtalk-relay/1"
 DEFAULT_TTL_SECONDS = 86_400

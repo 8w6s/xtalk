@@ -17,13 +17,23 @@ git clone https://github.com/8w6s/xtalk.git
 cd xtalk
 
 # Windows
-py install.py
+PowerShell -ExecutionPolicy Bypass -File .\install.ps1
 
 # macOS / Linux
 ./install.sh
 ```
 
-The guided macOS/Linux installer shows each setup stage, creates `.venv`, installs `xtalk-mcp`, configures selected MCP clients, runs diagnostics, and installs the current skill from this GitHub repo through `npx skills`. Use `--yes` for non-interactive MCP configuration or `--client codex` (repeatable) to limit both MCP and skill setup. Windows uses the cross-platform Python installer. Restart the client after installation.
+The guided installers create a stable runtime outside the clone, configure selected MCP clients, run diagnostics, and install the current skill through `npx skills`. Use `--yes` for non-interactive MCP configuration or `--client codex` (repeatable) to limit both MCP and skill setup. Restart configured agents after installation.
+
+Runtime locations:
+
+| Platform | Runtime |
+|---|---|
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/xtalk/venv` |
+| macOS | `~/Library/Application Support/xtalk/venv` |
+| Windows | `%LOCALAPPDATA%\xtalk\venv` |
+
+The runtime contains a regular package install, not an editable reference to the clone. The cloned repository may be moved or deleted after setup.
 
 To install or update only the agent skill with the cross-agent [`skills` CLI](https://github.com/vercel-labs/skills):
 
@@ -32,21 +42,42 @@ npx skills add 8w6s/xtalk --skill xtalk -g \
   -a claude-code -a codex -a antigravity-cli
 ```
 
-Omit `-g` for a project-local skill, or choose only the agents you use. This installs the instructions that govern agent behavior; it does not install or configure the xtalk MCP server, so first-time users should still run `install.py`.
+Omit `-g` for a project-local skill, or choose only the agents you use. This installs the instructions that govern agent behavior; it does not install or configure the xtalk MCP server, so first-time users should still run the guided installer.
 
-Manual client configuration:
+Manual client configuration on Linux (adjust the runtime path for macOS or Windows):
 
 ```bash
-.venv/bin/xtalk install --server "$PWD/.venv/bin/xtalk-mcp" --client claude-code
-.venv/bin/xtalk install --server "$PWD/.venv/bin/xtalk-mcp" --client codex
-.venv/bin/xtalk install --server "$PWD/.venv/bin/xtalk-mcp" --client antigravity
+~/.local/share/xtalk/venv/bin/xtalk install \
+  --server ~/.local/share/xtalk/venv/bin/xtalk-mcp \
+  --client claude-code --client codex --client antigravity
 ```
 
 Verify the installation:
 
 ```bash
-.venv/bin/xtalk doctor
+~/.local/share/xtalk/venv/bin/xtalk doctor
 ```
+
+Installer failures are fatal: invalid client config, a failed doctor check, a failed `npx` command, or a partial skill installation returns a non-zero exit code instead of reporting success.
+
+## Update and uninstall
+
+Update the installed MCP runtime and agent skill:
+
+```bash
+~/.local/share/xtalk/venv/bin/xtalk update
+npx skills update xtalk -g
+```
+
+Remove xtalk from all client configs without disturbing other MCP servers:
+
+```bash
+~/.local/share/xtalk/venv/bin/xtalk uninstall --dry-run
+~/.local/share/xtalk/venv/bin/xtalk uninstall
+npx skills remove xtalk --agent '*' -g -y
+```
+
+Configuration changes create a timestamped neighboring `.xtalk-bak-*` backup before writing. Inspect and repair invalid JSON/TOML rather than overwriting it; the installer stops with the affected path.
 
 Live config locations currently used by the installer:
 
@@ -125,8 +156,8 @@ xtalk_room_join(invite="xtalk://join/...#...", alias="reviewer")
 Run a self-hosted relay for different machines:
 
 ```bash
-.venv/bin/xtalk relay --host 0.0.0.0 --port 7889
-.venv/bin/xtalk daemon start
+~/.local/share/xtalk/venv/bin/xtalk relay --host 0.0.0.0 --port 7889
+~/.local/share/xtalk/venv/bin/xtalk daemon start
 ```
 
 Use TLS/WSS and authentication in front of an Internet-facing relay. The bundled relay is intended for trusted or development deployments.
@@ -142,10 +173,11 @@ Use TLS/WSS and authentication in front of an Internet-facing relay. The bundled
 ## Development
 
 ```bash
-PYTHONPATH=. .venv/bin/pytest -q
+python -m pip install -e . pytest pytest-asyncio
+python -m pytest -q
 ```
 
-Current suite: 48 tests, including real stdio MCP subprocess dogfood, membership notifications, concurrent storage migration, lease renewal, and project-room restart recovery.
+Current suite: 57 tests, including real stdio MCP subprocess dogfood, installer failure handling, membership notifications, concurrent storage migration, lease renewal, and project-room restart recovery. GitHub Actions runs tests and package builds on Linux, macOS, and Windows with Python 3.10 and 3.14.
 
 ## Scope
 

@@ -1,6 +1,6 @@
 [project]
 name = "xtalk-mcp"
-version = "0.2.4"
+dynamic = ["version"]
 description = "Cross-agent MCP messaging: rooms, invites, wait/monitor, self-hosted relay, optional E2EE"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -8,7 +8,7 @@ license = { text = "MIT" }
 authors = [{ name = "xtalk contributors" }]
 keywords = ["mcp", "agent", "coordination", "claude", "codex", "cursor"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX :: Linux",
     "Operating System :: Microsoft :: Windows",
@@ -25,6 +25,7 @@ dependencies = [
     "portalocker>=2.8",
     "aiohttp>=3.9",
     "cryptography>=41",
+    "tomli>=2; python_version<'3.11'",
 ]
 
 [project.scripts]
@@ -32,8 +33,8 @@ xtalk-mcp = "xtalk.server:main"
 xtalk = "xtalk.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/satoharuki/xtalk"
-Issues = "https://github.com/satoharuki/xtalk/issues"
+Homepage = "https://github.com/8w6s/xtalk"
+Issues = "https://github.com/8w6s/xtalk/issues"
 
 [build-system]
 requires = ["hatchling"]
@@ -42,5 +43,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/xtalk"]
 
+[tool.hatch.version]
+path = "src/xtalk/__init__.py"
+
 [tool.hatch.build.targets.sdist]
-include = ["src/xtalk", "skills", "tests", "README.md", "LICENSE", "install.py", "install.sh"]
+include = ["src/xtalk", "skills", "tests", "README.md", "LICENSE", "install.py", "install.sh", "install.ps1"]

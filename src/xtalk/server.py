@@ -15,6 +15,7 @@ from typing import Any, Callable
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import TextContent, Tool
+from . import __version__
 
 from . import crypto, storage, daemon
 from .storage import DEFAULT_READ_COUNT, MAX_READ_COUNT, Message, Room, ensure_project_binding, new_msg_id, new_room_id, new_thread_id, now_iso, project_manifest_path, resolve_alias, save_session, workspace_hash
@@ -571,7 +572,7 @@ def handle_wait(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_status(args: dict[str, Any]) -> dict[str, Any]:
-    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.4"}
+    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": __version__}
 
 
 def handle_presence(args: dict[str, Any]) -> dict[str, Any]:

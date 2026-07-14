@@ -31,67 +31,23 @@ step 1 4 "Environment checks"
 command -v python3 >/dev/null 2>&1 || fail "Python 3.10+ is required."
 ok "Python: $(python3 --version 2>&1)"
 if command -v npx >/dev/null 2>&1; then
-    HAVE_NPX=1
     ok "Skills CLI runner: $(command -v npx)"
 else
-    HAVE_NPX=0
-    warn "npx not found; install Node.js, then run the skill command shown below."
+    fail "npx not found. Install Node.js before running the full setup."
 fi
 
 step 2 4 "Install xtalk MCP server"
-python3 "$HERE/install.py" --skip-skill-copy --quiet-pip "$@"
+python3 "$HERE/install.py" --mcp-only --quiet-pip "$@"
 ok "Virtual environment, MCP server, client config and doctor completed."
 
 step 3 4 "Install the xtalk agent skill"
 install_skill() {
-    # Build the official skills CLI agent list from install.py client names.
-    selected=""
-    expect_client=0
-    for arg do
-        if [ "$expect_client" -eq 1 ]; then
-            selected="$selected $arg"
-            expect_client=0
-            continue
-        fi
-        case "$arg" in
-            --client) expect_client=1 ;;
-            --client=*) selected="$selected ${arg#--client=}" ;;
-        esac
-    done
-
-    # install.py configures these four clients by default; mirror that scope
-    # instead of letting the skills CLI target every detected agent.
-    if [ "$selected" = "" ]; then
-        selected="claude-code codex cursor antigravity"
-    fi
-
-    set -- npx --yes skills add "$REPO" --skill xtalk --global --yes
-    for client in $selected; do
-        case "$client" in
-            antigravity) agent=antigravity-cli ;;
-            *) agent=$client ;;
-        esac
-        set -- "$@" --agent "$agent"
-    done
-    printf '%s  RUN%s %s%s%s\n' "$MAGENTA$BOLD" "$RESET" "$DIM" "$*" "$RESET"
-    if skill_output=$("$@" 2>&1); then
-        printf '%s\n' "$skill_output"
-    else
-        printf '%s\n' "$skill_output"
-        fail "The skills CLI command failed. MCP setup is complete; skill setup is not."
-    fi
-    case "$skill_output" in
-        *"Failed to install"*) fail "The skills CLI reported a partial installation failure." ;;
-    esac
+    printf '%s  RUN%s %sagent skill installer%s\n' "$MAGENTA$BOLD" "$RESET" "$DIM" "$RESET"
+    python3 "$HERE/install.py" --skill-only "$@"
 }
 
-if [ "$HAVE_NPX" -eq 1 ]; then
-    install_skill "$@"
-    ok "Skill installed from github.com/$REPO for the selected/detected agents."
-else
-    warn "Skill installation skipped. After installing Node.js, run:"
-    printf '     npx skills add %s --skill xtalk -g\n' "$REPO"
-fi
+install_skill "$@"
+ok "Skill installed from github.com/$REPO for the selected/detected agents."
 
 step 4 4 "Finish"
 printf '%sSetup complete.%s Restart each configured agent, then ask it to register with xtalk.\n' "$GREEN$BOLD" "$RESET"

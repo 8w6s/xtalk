@@ -7,9 +7,17 @@ import json
 import os
 import secrets
 import shutil
+import subprocess
 import sys
+import re
+import time
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ImportError:  # Python 3.10
+    import tomli as tomllib
 
 from . import crypto, daemon, storage
 from .storage import Room, XTALK_ROOT, new_room_id
@@ -37,7 +45,7 @@ def _server_bin() -> str:
 def _backup(path: Path) -> Path | None:
     if not path.exists():
         return None
-    backup = path.with_suffix(path.suffix + ".xtalk-bak")
+    backup = path.with_name(f"{path.name}.xtalk-bak-{time.time_ns()}")
     backup.write_bytes(path.read_bytes())
     return backup
 
@@ -48,8 +56,8 @@ def _install_claude_code(server: str, *, dry_run: bool) -> str:
     if path.exists():
         try:
             settings = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return f"claude-code: {path} is not valid JSON — skipping"
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"claude-code: {path} is not valid JSON: {exc}") from exc
     servers = settings.setdefault("mcpServers", {})
     before = json.dumps(servers.get("xtalk"), sort_keys=True) if "xtalk" in servers else None
     servers["xtalk"] = {"type": "stdio", "command": server, "args": [], "env": {}}
@@ -65,22 +73,30 @@ def _install_claude_code(server: str, *, dry_run: bool) -> str:
 
 
 def _install_codex(server: str, *, dry_run: bool) -> str:
-    """Codex config.toml — append [mcp_servers.xtalk] section if missing."""
+    """Create or replace the Codex xtalk TOML section."""
     path = CLIENT_CONFIGS["codex"]
-    snippet = f'\n[mcp_servers.xtalk]\ncommand = "{server}"\n'
+    escaped = server.replace("\\", "\\\\").replace('"', '\\"')
+    snippet = f'[mcp_servers.xtalk]\ncommand = "{escaped}"\n'
     if path.exists():
         text = path.read_text(encoding="utf-8")
-        if "[mcp_servers.xtalk]" in text:
+        try:
+            tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"codex: {path} is not valid TOML: {exc}") from exc
+        pattern = re.compile(r"(?ms)^\[mcp_servers\.xtalk\]\s*\n.*?(?=^\[|\Z)")
+        match = pattern.search(text)
+        if match and match.group(0).strip() == snippet.strip():
             return f"codex: already configured at {path}"
         if dry_run:
-            return f"codex: would append to {path}"
+            return f"codex: would {'update' if match else 'append to'} {path}"
         _backup(path)
-        path.write_text(text.rstrip() + "\n" + snippet, encoding="utf-8")
-        return f"codex: appended to {path}"
+        updated = pattern.sub(snippet + "\n", text) if match else text.rstrip() + "\n\n" + snippet
+        path.write_text(updated, encoding="utf-8")
+        return f"codex: {'updated' if match else 'appended to'} {path}"
     if dry_run:
         return f"codex: would create {path}"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(snippet.lstrip(), encoding="utf-8")
+    path.write_text(snippet, encoding="utf-8")
     return f"codex: created {path}"
 
 
@@ -90,8 +106,8 @@ def _install_json_client(name: str, path: Path, server: str, *, dry_run: bool) -
     if path.exists():
         try:
             config = json.loads(path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return f"{name}: {path} is not valid JSON — skipping"
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{name}: {path} is not valid JSON: {exc}") from exc
     servers = config.setdefault("mcpServers", {})
     if servers.get("xtalk", {}).get("command") == server:
         return f"{name}: already configured at {path}"
@@ -114,14 +130,66 @@ def cmd_install(args: argparse.Namespace) -> int:
     def _pick(name: str) -> bool:
         return only is None or name in only
 
-    if _pick("claude-code"):
-        print(_install_claude_code(server, dry_run=args.dry_run))
-    if _pick("codex"):
-        print(_install_codex(server, dry_run=args.dry_run))
-    for name in ("cursor", "antigravity"):
-        if _pick(name):
-            print(_install_json_client(name, CLIENT_CONFIGS[name], server, dry_run=args.dry_run))
+    try:
+        if _pick("claude-code"):
+            print(_install_claude_code(server, dry_run=args.dry_run))
+        if _pick("codex"):
+            print(_install_codex(server, dry_run=args.dry_run))
+        for name in ("cursor", "antigravity"):
+            if _pick(name):
+                print(_install_json_client(name, CLIENT_CONFIGS[name], server, dry_run=args.dry_run))
+    except (OSError, ValueError) as exc:
+        print(f"install failed: {exc}", file=sys.stderr)
+        return 1
     return 0
+
+
+def _remove_client(name: str, path: Path, *, dry_run: bool) -> str:
+    if not path.exists():
+        return f"{name}: no config at {path}"
+    if name == "codex":
+        text = path.read_text(encoding="utf-8")
+        try:
+            tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            raise ValueError(f"codex: {path} is not valid TOML: {exc}") from exc
+        pattern = re.compile(r"(?ms)^\[mcp_servers\.xtalk\]\s*\n.*?(?=^\[|\Z)")
+        if not pattern.search(text):
+            return f"{name}: xtalk not configured"
+        if not dry_run:
+            _backup(path)
+            path.write_text(pattern.sub("", text).rstrip() + "\n", encoding="utf-8")
+        return f"{name}: {'would remove' if dry_run else 'removed'} xtalk"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{name}: {path} is not valid JSON: {exc}") from exc
+    servers = data.get("mcpServers", {})
+    if "xtalk" not in servers:
+        return f"{name}: xtalk not configured"
+    if not dry_run:
+        _backup(path)
+        del servers["xtalk"]
+        path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return f"{name}: {'would remove' if dry_run else 'removed'} xtalk"
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    only = set(args.client) if args.client else set(CLIENT_CONFIGS)
+    try:
+        for name, path in CLIENT_CONFIGS.items():
+            if name in only:
+                print(_remove_client(name, path, dry_run=args.dry_run))
+    except (OSError, ValueError) as exc:
+        print(f"uninstall failed: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    source = args.source or "https://github.com/8w6s/xtalk/archive/refs/heads/main.zip"
+    result = subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", source])
+    return int(result.returncode)
 
 
 # ---------- doctor ----------
@@ -170,8 +238,17 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     if root_ok:
         checks.append(("XTALK_HOME writable", True, str(XTALK_ROOT)))
 
-    running, pid = daemon.is_running()
-    checks.append(("daemon (optional)", True, f"pid={pid}" if running else "not running"))
+    daemon_status = daemon.status()
+    running, pid = daemon_status["running"], daemon_status["pid"]
+    runtime = daemon_status.get("runtime", {})
+    daemon_ok = not running or (
+        runtime.get("version") == __import__("xtalk").__version__
+        and Path(runtime.get("executable", "")).resolve() == Path(sys.executable).resolve()
+    )
+    detail = "not running"
+    if running:
+        detail = f"pid={pid}, version={runtime.get('version', 'unknown')}, executable={runtime.get('executable', 'unknown')}"
+    checks.append(("daemon runtime current", daemon_ok, detail))
 
     print(f"{'CHECK':<30} STATUS  DETAIL")
     print("-" * 70)
@@ -254,6 +331,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_install.add_argument("--client", action="append", choices=list(CLIENT_CONFIGS.keys()), help="Only install for these clients (repeatable)")
     p_install.add_argument("--dry-run", action="store_true")
     p_install.set_defaults(func=cmd_install)
+
+    p_uninstall = sub.add_parser("uninstall", help="Remove xtalk from supported client configs")
+    p_uninstall.add_argument("--client", action="append", choices=list(CLIENT_CONFIGS.keys()))
+    p_uninstall.add_argument("--dry-run", action="store_true")
+    p_uninstall.set_defaults(func=cmd_uninstall)
+
+    p_update = sub.add_parser("update", help="Update the xtalk runtime in the current environment")
+    p_update.add_argument("--source", help=argparse.SUPPRESS)
+    p_update.set_defaults(func=cmd_update)
 
     p_doctor = sub.add_parser("doctor", help="Diagnose xtalk installation")
     p_doctor.set_defaults(func=cmd_doctor)
