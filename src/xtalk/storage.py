@@ -333,6 +333,20 @@ class Room:
         }
         self.append_member_event(event)
 
+    def notify_membership(self, kind: str, sid: str, alias: str, recipients: list[str]) -> dict[str, Any]:
+        """Fan out an inbox-only member_joined/member_left event."""
+        if kind not in {"member_joined", "member_left"}:
+            raise ValueError(f"invalid membership notification kind: {kind}")
+        event = {
+            "msg_id": new_msg_id(), "room": self.id, "from": sid,
+            "from_alias": alias, "kind": kind, "ts": now_iso(),
+        }
+        line = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        for recipient in recipients:
+            if recipient != sid:
+                atomic_append(self.inbox_path(recipient), line)
+        return event
+
     def check_deadlock(self, now: float | None = None) -> list[str] | None:
         """Return the sids caught in a mutual-wait deadlock, or None if the room is fine.
 

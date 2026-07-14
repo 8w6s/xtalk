@@ -78,6 +78,7 @@ monitor → daemon/background process → xtalk_wait with bounded timeout
 4. Each notification is a line `[xtalk] {msg_id, tid, room, from, kind, ts}` — a JSON object after the `[xtalk] ` prefix.
 
 5. Handle:
+   - `member_joined` / `member_left` contain membership metadata directly and have no thread body; update your peer view without calling `xtalk_read`.
    - `xtalk_read(thread=<tid>, count=20)` for the full message.
    - Compose answer.
    - `xtalk_reply(thread=<tid>, body=..., in_reply_to=<msg_id>)`.

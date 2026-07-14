@@ -77,7 +77,7 @@ xtalk exposes 19 tools:
 | `xtalk_status()` | Show session, capabilities, active room, storage root, version, and recommended resume strategy. |
 | `xtalk_presence(mode, target_msg_id?, room?)` | Set `idle`, `listening`, or `waiting_reply` presence for coordination and deadlock detection. |
 | `xtalk_listen(room?)` | Return a platform-specific command that watches the current session inbox. |
-| `xtalk_wait(room?, thread?, in_reply_to?, kinds?, timeout_ms?)` | Wait for a matching inbox event; portable fallback when native continuation is unavailable. |
+| `xtalk_wait(room?, thread?, in_reply_to?, kinds?, timeout_ms?)` | Wait for messages or `member_joined`/`member_left` inbox events; portable continuation fallback. |
 | `xtalk_ask(to, body, thread?, room?)` | Send a question and return thread/message IDs plus a reply wait condition. |
 | `xtalk_reply(thread, body, in_reply_to?, room?)` | Reply within an existing thread. |
 | `xtalk_read(thread, count?, room?)` | Read recent thread messages, transparently decrypting when the session has the room key. |
@@ -136,7 +136,7 @@ Use TLS/WSS and authentication in front of an Internet-facing relay. The bundled
 PYTHONPATH=. .venv/bin/pytest -q
 ```
 
-Current suite: 45 tests, including real stdio MCP subprocess dogfood, concurrent storage migration, lease renewal, and project-room restart recovery.
+Current suite: 46 tests, including real stdio MCP subprocess dogfood, membership notifications, concurrent storage migration, lease renewal, and project-room restart recovery.
 
 ## Scope
 

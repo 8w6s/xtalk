@@ -211,13 +211,15 @@ def _join(room: Room, alias: str) -> None:
     alias = alias.strip()
     if not alias or len(alias) > 64:
         raise ValueError("alias must be 1..64 characters")
-    if any(m.get("alias") == alias and m.get("sid") != CTX.sid for m in room.current_members()):
+    existing = room.current_members()
+    if any(m.get("alias") == alias and m.get("sid") != CTX.sid for m in existing):
         raise ValueError(f"alias already in use in room: {alias}")
     room.append_member_event({"event": "join", "sid": CTX.sid, "alias": alias, "epoch": time.time(), "ts": now_iso(), "client": CTX.client, "pid": os.getppid()})
     CTX.memberships[room.id] = alias
     CTX.active_room = room.id
     CTX.persist()
     _arm_heartbeat(room.id, CTX.sid or "", alias)
+    room.notify_membership("member_joined", CTX.sid or "", alias, [m["sid"] for m in existing])
 
 
 def handle_register(args: dict[str, Any]) -> dict[str, Any]:
@@ -372,6 +374,10 @@ def _leave_room(rid: str) -> dict[str, Any]:
     alias = CTX.memberships[rid]
     _cancel_heartbeat(rid, CTX.sid or "")
     room.append_member_event({"event": "leave", "sid": CTX.sid, "alias": alias, "epoch": time.time(), "ts": now_iso()})
+    room.notify_membership(
+        "member_left", CTX.sid or "", alias,
+        [m["sid"] for m in room.current_members()],
+    )
     del CTX.memberships[rid]
     CTX.active_room = next(iter(CTX.memberships), None)
     if not CTX.memberships:
@@ -533,6 +539,8 @@ def handle_wait(args: dict[str, Any]) -> dict[str, Any]:
                 if kinds and event.get("kind") not in kinds:
                     continue
                 if args.get("in_reply_to"):
+                    if not event.get("tid"):
+                        continue
                     messages = room.read_thread(event["tid"], 100)
                     if not any(m.msg_id == event["msg_id"] and m.in_reply_to == args["in_reply_to"] for m in messages):
                         continue
@@ -557,7 +565,7 @@ def handle_wait(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_status(args: dict[str, Any]) -> dict[str, Any]:
-    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.3"}
+    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.4"}
 
 
 def handle_presence(args: dict[str, Any]) -> dict[str, Any]:

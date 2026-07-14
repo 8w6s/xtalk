@@ -21,6 +21,10 @@ def test_workspace_room_shared_between_sessions(server_module, xtalk_home, tmp_p
     r_b, ctx_b = _register(server_module, "reviewer", "sid-B", str(ws))
     assert any(m["alias"] == "coder" for m in r_b["other_members"])
     assert r_a["room_id"] == r_b["room_id"]
+    room = server_module.Room(r_a["room_id"])
+    joined = [server_module.json.loads(line) for line in room.inbox_path("sid-A").read_text().splitlines()]
+    assert joined[-1]["kind"] == "member_joined"
+    assert joined[-1]["from_alias"] == "reviewer"
     manifest = ws / ".xtalk" / "project.json"
     assert manifest.exists()
     assert r_a["project_manifest"] == str(manifest)
@@ -118,3 +122,18 @@ def test_room_join_bad_secret(server_module, tmp_path):
     tampered = invite[:-4] + "XXXX"
     with pytest.raises(ValueError, match="invalid invite secret"):
         server_module.handle_room_join({"invite": tampered, "alias": "sneak"})
+
+
+def test_leave_notifies_remaining_room_members(server_module, tmp_path):
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    _, ctx_a = _register(server_module, "a", "sid-A", str(ws))
+    _, ctx_b = _register(server_module, "b", "sid-B", str(ws))
+
+    switch(server_module, ctx_b)
+    server_module.handle_leave({})
+
+    room = server_module.Room(ctx_a.active_room)
+    events = [server_module.json.loads(line) for line in room.inbox_path("sid-A").read_text().splitlines()]
+    assert events[-1]["kind"] == "member_left"
+    assert events[-1]["from_alias"] == "b"

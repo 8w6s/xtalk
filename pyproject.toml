@@ -1,6 +1,6 @@
 [project]
 name = "xtalk-mcp"
-version = "0.2.3"
+version = "0.2.4"
 description = "Cross-agent MCP messaging: rooms, invites, wait/monitor, self-hosted relay, optional E2EE"
 readme = "README.md"
 requires-python = ">=3.10"
