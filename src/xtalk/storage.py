@@ -308,6 +308,7 @@ class Room:
             elif kind == "presence":
                 if sid not in alive:
                     continue  # presence only meaningful for existing members
+                alive[sid]["epoch"] = float(event.get("epoch", alive[sid].get("epoch", 0)))
                 alive[sid]["mode"] = event.get("mode", "idle")
                 alive[sid]["target_msg_id"] = event.get("target_msg_id")
                 alive[sid]["deadline_ts"] = event.get("deadline_ts")
@@ -326,7 +327,10 @@ class Room:
         event verbatim — pass `target_msg_id` / `deadline_ts` when mode is
         `waiting_reply` so the deadlock detector can reason about them.
         """
-        event = {"event": "presence", "sid": sid, "alias": alias, "mode": mode, "ts": now_iso(), **extra}
+        event = {
+            "event": "presence", "sid": sid, "alias": alias, "mode": mode,
+            "epoch": time.time(), "ts": now_iso(), **extra,
+        }
         self.append_member_event(event)
 
     def check_deadlock(self, now: float | None = None) -> list[str] | None:

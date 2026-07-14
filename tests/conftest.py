@@ -23,6 +23,7 @@ def xtalk_home(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     importlib.reload(server)
     server.storage.XTALK_ROOT = storage.XTALK_ROOT
     yield tmp
+    server._cancel_all_heartbeats()
     shutil.rmtree(tmp, ignore_errors=True)
 
 

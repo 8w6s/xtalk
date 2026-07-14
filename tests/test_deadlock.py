@@ -30,6 +30,30 @@ def test_presence_reported_by_discover_after_listen(server_module, tmp_path):
     assert reviewer["mode"] == "listening"
 
 
+def test_presence_and_heartbeat_renew_member_lease(server_module, tmp_path):
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    _, ctx = _register(server_module, "agent", "sid-A", str(ws))
+    room = server_module.storage.Room(ctx.active_room)
+
+    # Simulate an old join followed by current activity.
+    room.append_member_event({
+        "event": "join", "sid": "sid-A", "alias": "agent",
+        "epoch": time.time() - server_module.storage.LEASE_SECONDS - 1,
+        "ts": server_module.now_iso(),
+    })
+    assert room.current_members() == []
+
+    room.append_presence("sid-A", "agent", "listening")
+    assert next(m for m in room.current_members() if m["sid"] == "sid-A")["mode"] == "listening"
+
+    room.append_member_event({
+        "event": "heartbeat", "sid": "sid-A", "alias": "agent",
+        "epoch": time.time(), "ts": server_module.now_iso(),
+    })
+    assert any(m["sid"] == "sid-A" for m in room.current_members())
+
+
 def test_ask_no_warning_when_target_listening(server_module, tmp_path):
     ws = tmp_path / "proj"
     ws.mkdir()

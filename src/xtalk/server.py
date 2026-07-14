@@ -75,8 +75,62 @@ class SessionCtx:
 CTX = SessionCtx()
 
 DEADLOCK_GRACE_SECONDS = 60.0
+HEARTBEAT_INTERVAL_SECONDS = 20.0
 _WATCHDOG_TIMERS: dict[str, threading.Timer] = {}
 _WATCHDOG_LOCK = threading.Lock()
+_HEARTBEAT_TIMERS: dict[tuple[str, str], threading.Timer] = {}
+_HEARTBEAT_LOCK = threading.Lock()
+
+
+def _heartbeat_tick(room_id: str, sid: str, alias: str, client: str, pid: int) -> None:
+    key = (room_id, sid)
+    try:
+        Room(room_id).append_member_event({
+            "event": "heartbeat", "sid": sid, "alias": alias,
+            "epoch": time.time(), "ts": now_iso(), "client": client, "pid": pid,
+        })
+    except Exception:
+        pass
+    with _HEARTBEAT_LOCK:
+        if key not in _HEARTBEAT_TIMERS:
+            return
+        timer = threading.Timer(
+            HEARTBEAT_INTERVAL_SECONDS, _heartbeat_tick,
+            args=(room_id, sid, alias, client, pid),
+        )
+        timer.daemon = True
+        _HEARTBEAT_TIMERS[key] = timer
+        timer.start()
+
+
+def _arm_heartbeat(room_id: str, sid: str, alias: str) -> None:
+    key = (room_id, sid)
+    with _HEARTBEAT_LOCK:
+        previous = _HEARTBEAT_TIMERS.pop(key, None)
+        if previous:
+            previous.cancel()
+        timer = threading.Timer(
+            HEARTBEAT_INTERVAL_SECONDS, _heartbeat_tick,
+            args=(room_id, sid, alias, CTX.client, os.getppid()),
+        )
+        timer.daemon = True
+        _HEARTBEAT_TIMERS[key] = timer
+        timer.start()
+
+
+def _cancel_heartbeat(room_id: str, sid: str) -> None:
+    with _HEARTBEAT_LOCK:
+        timer = _HEARTBEAT_TIMERS.pop((room_id, sid), None)
+        if timer:
+            timer.cancel()
+
+
+def _cancel_all_heartbeats() -> None:
+    with _HEARTBEAT_LOCK:
+        timers = list(_HEARTBEAT_TIMERS.values())
+        _HEARTBEAT_TIMERS.clear()
+    for timer in timers:
+        timer.cancel()
 
 
 def _watchdog_check(room_id: str) -> None:
@@ -163,6 +217,7 @@ def _join(room: Room, alias: str) -> None:
     CTX.memberships[room.id] = alias
     CTX.active_room = room.id
     CTX.persist()
+    _arm_heartbeat(room.id, CTX.sid or "", alias)
 
 
 def handle_register(args: dict[str, Any]) -> dict[str, Any]:
@@ -315,6 +370,7 @@ def handle_close(args: dict[str, Any]) -> dict[str, Any]:
 def _leave_room(rid: str) -> dict[str, Any]:
     room = CTX.room(rid)
     alias = CTX.memberships[rid]
+    _cancel_heartbeat(rid, CTX.sid or "")
     room.append_member_event({"event": "leave", "sid": CTX.sid, "alias": alias, "epoch": time.time(), "ts": now_iso()})
     del CTX.memberships[rid]
     CTX.active_room = next(iter(CTX.memberships), None)
@@ -501,7 +557,7 @@ def handle_wait(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_status(args: dict[str, Any]) -> dict[str, Any]:
-    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.2"}
+    return {"registered": bool(CTX.sid), "sid": CTX.sid, "client": CTX.client, "capabilities": sorted(CTX.capabilities), "active_room": CTX.active_room, "rooms": len(CTX.memberships), "recommended_resume_strategy": _strategy(), "root": str(storage.XTALK_ROOT), "version": "0.2.3"}
 
 
 def handle_presence(args: dict[str, Any]) -> dict[str, Any]:
