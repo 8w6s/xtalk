@@ -9,23 +9,23 @@ REPO="8w6s/xtalk"
 # Keep colors enabled there; honor the standard NO_COLOR opt-out for plain logs.
 if [ "${NO_COLOR:-}" = "" ]; then
     ESC=$(printf '\033')
-    BOLD="${ESC}[1m"; DIM="${ESC}[2m"; BLUE="${ESC}[36m"; GREEN="${ESC}[32m"; YELLOW="${ESC}[33m"; RED="${ESC}[31m"; RESET="${ESC}[0m"
+    BOLD="${ESC}[1m"; DIM="${ESC}[2m"; CYAN="${ESC}[36m"; GREEN="${ESC}[32m"; YELLOW="${ESC}[33m"; RED="${ESC}[31m"; MAGENTA="${ESC}[35m"; WHITE="${ESC}[97m"; RESET="${ESC}[0m"
 else
-    BOLD=''; DIM=''; BLUE=''; GREEN=''; YELLOW=''; RED=''; RESET=''
+    BOLD=''; DIM=''; CYAN=''; GREEN=''; YELLOW=''; RED=''; MAGENTA=''; WHITE=''; RESET=''
 fi
 
-line() { printf '%s\n' "+------------------------------------------------------------+"; }
-step() { printf '\n%s[%s/%s]%s %s%s%s\n' "$BLUE" "$1" "$2" "$RESET" "$BOLD" "$3" "$RESET"; }
-ok() { printf '%s  OK%s  %s\n' "$GREEN" "$RESET" "$1"; }
-warn() { printf '%s  !!%s  %s\n' "$YELLOW" "$RESET" "$1"; }
-fail() { printf '%s  ERROR%s  %s\n' "$RED" "$RESET" "$1" >&2; exit 1; }
+line() { printf '%s%s%s\n' "$CYAN" "+------------------------------------------------------------+" "$RESET"; }
+step() { printf '\n%s%s[%s/%s]%s %s%s%s\n' "$CYAN" "$BOLD" "$1" "$2" "$RESET" "$WHITE$BOLD" "$3" "$RESET"; }
+ok() { printf '%s%s  OK%s  %s\n' "$GREEN" "$BOLD" "$RESET" "$1"; }
+warn() { printf '%s%s  WARN%s  %s\n' "$YELLOW" "$BOLD" "$RESET" "$1"; }
+fail() { printf '%s%s  ERROR%s  %s\n' "$RED" "$BOLD" "$RESET" "$1" >&2; exit 1; }
 
 line
-printf '| %-58s |\n' "xtalk setup"
-printf '| %-58s |\n' "Cross-agent rooms for Claude, Codex and Antigravity"
+printf '%s| %s%-58s%s%s |%s\n' "$CYAN" "$WHITE$BOLD" "xtalk setup" "$RESET" "$CYAN" "$RESET"
+printf '%s| %s%-58s%s%s |%s\n' "$CYAN" "$DIM" "Cross-agent rooms for Claude, Codex and Antigravity" "$RESET" "$CYAN" "$RESET"
 line
-printf '%sProject:%s %s\n' "$DIM" "$RESET" "$HERE"
-printf '%sSource: %s https://github.com/%s\n' "$DIM" "$RESET" "$REPO"
+printf '%sProject:%s %s%s%s\n' "$MAGENTA" "$RESET" "$BOLD" "$HERE" "$RESET"
+printf '%sSource: %s %shttps://github.com/%s%s\n' "$MAGENTA" "$RESET" "$DIM" "$REPO" "$RESET"
 
 step 1 4 "Environment checks"
 command -v python3 >/dev/null 2>&1 || fail "Python 3.10+ is required."
@@ -39,7 +39,7 @@ else
 fi
 
 step 2 4 "Install xtalk MCP server"
-python3 "$HERE/install.py" --skip-skill-copy "$@"
+python3 "$HERE/install.py" --skip-skill-copy --quiet-pip "$@"
 ok "Virtual environment, MCP server, client config and doctor completed."
 
 step 3 4 "Install the xtalk agent skill"
@@ -59,6 +59,12 @@ install_skill() {
         esac
     done
 
+    # install.py configures these four clients by default; mirror that scope
+    # instead of letting the skills CLI target every detected agent.
+    if [ "$selected" = "" ]; then
+        selected="claude-code codex cursor antigravity"
+    fi
+
     set -- npx --yes skills add "$REPO" --skill xtalk --global --yes
     for client in $selected; do
         case "$client" in
@@ -67,8 +73,16 @@ install_skill() {
         esac
         set -- "$@" --agent "$agent"
     done
-    printf '%s  ->%s %s\n' "$DIM" "$RESET" "$*"
-    "$@"
+    printf '%s  RUN%s %s%s%s\n' "$MAGENTA$BOLD" "$RESET" "$DIM" "$*" "$RESET"
+    if skill_output=$("$@" 2>&1); then
+        printf '%s\n' "$skill_output"
+    else
+        printf '%s\n' "$skill_output"
+        fail "The skills CLI command failed. MCP setup is complete; skill setup is not."
+    fi
+    case "$skill_output" in
+        *"Failed to install"*) fail "The skills CLI reported a partial installation failure." ;;
+    esac
 }
 
 if [ "$HAVE_NPX" -eq 1 ]; then
@@ -81,4 +95,5 @@ fi
 
 step 4 4 "Finish"
 printf '%sSetup complete.%s Restart each configured agent, then ask it to register with xtalk.\n' "$GREEN$BOLD" "$RESET"
+printf '%sSkill scope:%s Claude Code, Codex, Cursor, Antigravity CLI\n' "$MAGENTA" "$RESET"
 printf '%sThe skill keeps agents registered across timeouts and closed threads.%s\n' "$DIM" "$RESET"

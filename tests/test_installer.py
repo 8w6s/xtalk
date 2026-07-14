@@ -13,10 +13,12 @@ def test_shell_installer_uses_official_skills_cli_and_maps_antigravity():
     source = SHELL_INSTALLER.read_text()
     assert 'skills add "$REPO" --skill xtalk --global --yes' in source
     assert "antigravity) agent=antigravity-cli" in source
-    assert 'python3 "$HERE/install.py" --skip-skill-copy "$@"' in source
+    assert 'python3 "$HERE/install.py" --skip-skill-copy --quiet-pip "$@"' in source
     assert 'if [ "${NO_COLOR:-}" = "" ]; then' in source
     assert "[ -t 1 ]" not in source
     assert "ESC=$(printf '\\033')" in source
+    assert 'selected="claude-code codex cursor antigravity"' in source
+    assert '*"Failed to install"*' in source
 SPEC = importlib.util.spec_from_file_location("xtalk_installer", INSTALLER)
 assert SPEC and SPEC.loader
 installer = importlib.util.module_from_spec(SPEC)
