@@ -5,8 +5,11 @@ set -eu
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 REPO="8w6s/xtalk"
 
-if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
-    BOLD='\033[1m'; DIM='\033[2m'; BLUE='\033[36m'; GREEN='\033[32m'; YELLOW='\033[33m'; RED='\033[31m'; RESET='\033[0m'
+# Agent shells often capture stdout through a pipe even though their UI renders ANSI.
+# Keep colors enabled there; honor the standard NO_COLOR opt-out for plain logs.
+if [ "${NO_COLOR:-}" = "" ]; then
+    ESC=$(printf '\033')
+    BOLD="${ESC}[1m"; DIM="${ESC}[2m"; BLUE="${ESC}[36m"; GREEN="${ESC}[32m"; YELLOW="${ESC}[33m"; RED="${ESC}[31m"; RESET="${ESC}[0m"
 else
     BOLD=''; DIM=''; BLUE=''; GREEN=''; YELLOW=''; RED=''; RESET=''
 fi
