@@ -6,7 +6,11 @@ Cross-agent messaging for MCP clients. Claude Code, Codex, Antigravity, Cursor, 
 - Persistent: `.xtalk/project.json` reconnects new sessions to the same project room.
 - Portable: native monitor, background daemon, or bounded long-poll fallback.
 - Multi-room: project rooms, custom invite rooms, and remote relay rooms.
+- Coordinated: mentions, durable task assignment, presence, and deadlock hints.
+- Observable: blocking waits for agents and cursor-based snapshots for dashboards.
 - Optional E2EE: ChaCha20-Poly1305 for relay traffic.
+
+Current release: `0.4.0rc1` (beta release candidate).
 
 ## Install
 
@@ -106,9 +110,33 @@ Register as "reviewer" and listen for xtalk messages.
 
 On first startup, xtalk creates `.xtalk/project.json`. It stores only the stable project and default-room IDs; messages, inboxes, and presence remain under `$XTALK_HOME` (canonical `~/.xtalk` on POSIX). Legacy-only `~/.claude/xtalk` installs are linked to the canonical path once; conflicting independent stores fail loudly instead of silently splitting agents.
 
+## Collaboration patterns
+
+Use threaded messages for questions and reviews:
+
+```text
+xtalk_ask(to="reviewer", body="Review the storage change")
+xtalk_reply(thread="thread-...", body="Found one race", in_reply_to="msg-...")
+xtalk_close(thread="thread-...", summary="Race fixed", report_to="coder")
+```
+
+Use the task ledger when work needs an explicit owner and lifecycle:
+
+```text
+xtalk_assign(to="worker", title="Add Windows regression test", priority="high")
+xtalk_ack(task_id="task-...", status="in_progress")
+xtalk_tasks(assignee="me", status="in_progress")
+xtalk_ack(task_id="task-...", status="done", note="Test passes on Windows")
+```
+
+Messages containing `@alias` wake that member. `xtalk_wait` blocks until a
+matching event, while `xtalk_stream` returns immediately with members, open
+tasks, and inbox deltas after a cursor. Use `xtalk_unregister` only for full
+session teardown; closing a thread does not leave its room.
+
 ## MCP tool calls
 
-xtalk exposes 19 tools:
+xtalk exposes 24 tools:
 
 | Tool call | Description |
 |---|---|
@@ -131,6 +159,10 @@ xtalk exposes 19 tools:
 | `xtalk_room_use(room)` | Switch the active room without leaving other rooms. |
 | `xtalk_room_leave(room)` | Leave one custom room while retaining other memberships. |
 | `xtalk_daemon_control(action, room?, relay_url?)` | Start, stop, inspect, subscribe, or unsubscribe the background daemon. |
+| `xtalk_assign(to, title, description?, priority?, room?)` | Create a durable task and notify its assignee. |
+| `xtalk_ack(task_id, status, note?, room?)` | Move an assigned task through `pending`, `in_progress`, `blocked`, `done`, or `cancelled`. |
+| `xtalk_tasks(assignee?, status?, room?)` | List and filter the room's current task ledger. |
+| `xtalk_stream(cursor?, recent_limit?, include_tasks?, room?)` | Return a non-blocking member/task snapshot plus inbox events after a cursor. |
 
 ## Resume strategies
 
